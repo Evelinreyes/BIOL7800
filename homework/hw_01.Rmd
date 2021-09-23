@@ -14,7 +14,7 @@ My name is Evelin Reyes
 I am an international *student* from **Honduras** 
 
 
-## Including Plots
+
 
 ```{bash}
 git --version 
