@@ -1,0 +1,61 @@
+---
+title: "Homework4"
+author: "Evelin Reyes"
+date: "10/26/2021"
+output: html_document
+---
+
+# Answer 1
+
+```{r}
+library(rvest)
+library(tidyverse)
+library(httr)
+library(dplyr)
+library(tidyr)
+
+url = "https://introdatasci.dlilab.com/schedule_materials/"
+x = url %>% 
+  httr::GET(config = httr::config(ssl_verifypeer = FALSE)) %>% 
+  read_html() 
+
+df1 = html_table(x)[[1]]
+df1
+```
+
+# Answer 2
+
+```{r}
+str_split_fixed(df1$Date," ", 2)
+df2 <- df1 %>%
+  separate(Date, c("Month","Day"), " ", remove = F)
+df2
+```
+
+# Answer 3
+
+```{r}
+df3 <- df2 %>% group_by(Month)
+df3
+table = summarise(df3, No.Lectures = n())
+table
+
+df4 <- table[order(-table$No.Lectures),]
+df4
+```
+
+# Answer 4
+
+```{r}
+df5 <- str_split(df3$Topic, " ")
+df5
+words <- unlist(df5)
+words
+freq <- table(words)
+freq
+
+most <- sort(freq,decreasing = TRUE)
+most
+
+most[1:5]
+```
