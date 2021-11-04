@@ -1,0 +1,83 @@
+---
+title: "Hmw_05e"
+author: "Evelin Reyes"
+date: "11/2/2021"
+output: pdf_document
+---
+Answer 1
+
+```{r}
+library(neonDivData)
+library(dplyr)
+library(stringr)
+data_plant
+
+Data_plant2 =
+  mutate(data_plant,genus = sapply(strsplit(data_plant$taxon_name, split = ' '),`[`, 1),taxon_name)
+sample(unique(Data_plant2$genus),100)
+```
+
+Answer 2
+
+```{r}
+Data_plant2$taxon_name2 <- paste(sapply(strsplit(data_plant$taxon_name, split = ' '),`[`, 1), sapply(strsplit(data_plant$taxon_name, split = ' '),`[`, 2))
+
+sample(unique(Data_plant2$taxon_name2), 100)
+```
+
+Answer 3
+
+```{r}
+#a
+library(dplyr)
+n_1 <- Data_plant2 %>%
+  filter(sample_area_m2 == '1')%>%
+  group_by(siteID) %>%
+  summarise(richness_1m2 = n_distinct(taxon_name2))
+n_1
+```
+
+```{r}
+#b
+library(dplyr)
+n_10 <- Data_plant2 %>%
+  filter(sample_area_m2 %in% c(1,10))%>%
+  group_by(siteID) %>%
+  summarise(richness_10m2 = n_distinct(taxon_name2))
+n_10
+```
+
+```{r}
+#c
+library(dplyr)
+n_100 <- Data_plant2 %>%
+  filter(sample_area_m2 %in% c(1,10,100))%>%
+  group_by(siteID) %>%
+  summarise(richness_100m2 = n_distinct(taxon_name2))
+n_100
+```
+
+```{r}
+n_all = dplyr::left_join(n_1, n_10)%>%
+  left_join(n_100)
+n_all
+```
+
+Answer 4
+
+```{r}
+library(tidyr)
+n_all_long <- n_all %>%
+  pivot_longer(cols = -c(siteID), names_to = "spatial_scale", values_to = "richness")
+n_all_long$richness<-as.numeric(n_all_long$richness)
+n_all_long
+```
+
+Answer 5
+
+```{r}
+library(ggplot2)
+ggplot(n_all_long, aes(x = spatial_scale, y = richness, group = siteID))+
+  geom_line()+
+  geom_point()
+```
