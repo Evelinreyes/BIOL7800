@@ -1,0 +1,325 @@
+setwd('/Users/evelin/Desktop/FALLsemester21/DS project/pheno_inat_flora/data')
+library(dplyr)
+library(readxl)
+library(rworldmap)
+library(raster)
+library(sf)
+library(rgeos)
+library(scales)
+dados<-read.csv('complete_yucca_dataset.csv')
+dados<-dados[,c(1:3,7:8,11)]
+dados[,2]<-paste("Yucca", dados$sp)
+dados<-dados[which(dados$flowers==1),]
+usa<-getMap()
+usa<-usa[which(usa$NAME=='United States'),]
+usa<-crop(x = usa, y = extent(-140, -67, 20, 50))
+
+
+expert.data<-read_xlsx('flower time from flora books.xlsx')
+
+expert.data = mutate(expert.data, sp = gsub("[ ]+", " ", sp))
+expert.data$sp[expert.data$sp == "Eupatorium coelestinum"] = "Conoclinium coelestinum"
+expert.data$sp[expert.data$sp == "Anemonella thalictroides"] = "Thalictrum thalictroides"
+expert.data$sp[expert.data$sp == "Campanula americana"] = "Campanulastrum americanum"
+expert.data$sp[expert.data$sp == "Epilobium angustifolium"] = "Chamaenerion angustifolium"
+expert.data$sp[expert.data$sp == "Cynoglossum grande"] = "Adelinia grande"
+expert.data<-as.data.frame(expert.data[,c(1,4)])
+colnames(expert.data)<-c('Sp', 'Flowering_time')
+###load inaturalist
+Inat<-list.files(path='/Users/evelin/Desktop/FALLsemester21/DS project/pheno_inat_flora/data/iNat_scores',pattern =".csv", full.names = TRUE)
+Inat<-lapply(Inat, read.csv)
+Inat<-do.call(rbind, Inat)
+Inat<-Inat[which(Inat$flowers==1),]
+Inat<-Inat[,c(1,3,2,5,6,4)]
+colnames(Inat)<-c("id", "sp", "flowers", "latitude", "longitude", "obs_date")
+
+iNatura<-rbind.data.frame(Inat, dados)
+
+##Getting only the points in the us
+
+
+##Getting months for inat and expert data
+iNatura[,6]<-as.numeric(substr(x = iNatura[,6], start=6, stop = 7))
+
+iNat.Df<-as.data.frame(matrix(nrow = length(unique(iNatura$sp)), ncol = 3))
+colnames(iNat.Df)<-c('Sp', 'Flowering_time_start','Flowering_time_end')
+iNat.Df[,1]<-unique(iNatura$sp)
+
+for(i in 1:nrow(iNat.Df)){
+  iNat.Df[i,2:3]<-range(iNatura[which(iNatura$sp==iNat.Df[i,1]),6])
+}
+
+
+months <- c("January","February","March",   "April",     "May",       "June",      "July",  "August",  "September", "October",'November',"December")
+months.number<-1:12
+##Transforming months to numbers
+for(i in 1:length(months)){
+  for(j in 1:nrow(expert.data)){
+    expert.data[j,2]<-gsub(pattern = months[i], replacement = months.number[i], x = expert.data[j,2])
+    expert.data[j,2]<-gsub(pattern = ' to ', replacement = ' ', x = expert.data[j,2])
+  }
+}
+
+expert.Df<-as.data.frame(matrix(nrow = nrow(expert.data), ncol = 3))
+colnames(expert.Df)<-c('Sp', 'Flowering_time_start','Flowering_time_end')
+expert.Df[,1]<-expert.data[,1]
+
+for(i in 1:nrow(expert.Df)){
+  if(length(strsplit(expert.data[i,2]," ")[[1]])==1){
+    expert.Df[i,2:3]<-as.numeric(strsplit(expert.data[i,2]," "))
+  }
+  if(length(strsplit(expert.data[i,2]," ")[[1]])>1){
+    expert.Df[i,2:3]<-range(as.numeric(sapply(strsplit(expert.data[i,2]," "), `[`, 1)):as.numeric(sapply(strsplit(expert.data[i,2]," "), `[`, 2)))
+  }
+  print(i)
+}
+
+##Keeping only the species that are shared by both datasets
+Sps<-c(expert.Df[,1], iNat.Df[,1])
+Sps<-Sps[which(duplicated(Sps))]
+
+df.exp<-expert.Df[which(expert.Df$Sp%in%Sps),]
+df.inat<-iNat.Df[which(iNat.Df$Sp%in%Sps),]
+
+##Putting the data frames in the same order
+df.exp<-df.exp[order(match(df.exp$Sp, df.inat$Sp)),]
+
+
+##Getting how many months there are in overlap and how many months are not in overlap
+df.out<-as.data.frame(matrix(nrow=nrow(df.exp), ncol = 5))
+colnames(df.out)<-c('sp','overlap','diff_exp', 'diff_inat', 'diff_total')
+df.out[,1]<-df.exp[,1]
+
+##Saving the exact months
+overlap.ls<-vector(mode='list', length = nrow(df.out))
+diffexp.ls<-vector(mode='list', length = nrow(df.out))
+diffinat.ls<-vector(mode='list', length = nrow(df.out))
+difftot.ls<-vector(mode='list', length = nrow(df.out))
+
+
+for(i in 1:nrow(df.out)){
+  df.out[i,2]<-as.numeric(length(intersect(c(df.exp[i,2]:df.exp[i,3]), c(df.inat[i,2]:df.inat[i,3]))))
+  overlap.ls[[i]]<-intersect(c(df.exp[i,2]:df.exp[i,3]), c(df.inat[i,2]:df.inat[i,3]))
+  df.out[i,3]<-as.numeric(length(setdiff(c(df.exp[i,2]:df.exp[i,3]), c(df.inat[i,2]:df.inat[i,3]))))
+  diffexp.ls[[i]]<-setdiff(c(df.exp[i,2]:df.exp[i,3]), c(df.inat[i,2]:df.inat[i,3]))
+  df.out[i,4]<-as.numeric(length(setdiff( c(df.inat[i,2]:df.inat[i,3]),c(df.exp[i,2]:df.exp[i,3]))))
+  diffinat.ls[[i]]<-setdiff( c(df.inat[i,2]:df.inat[i,3]),c(df.exp[i,2]:df.exp[i,3]))
+  df.out[i,5]<- df.out[i,3]+ df.out[i,4]
+  difftot.ls[[i]]<-c(diffexp.ls[[i]],diffinat.ls[[i]])
+}
+
+####t-test
+t.test(df.out[,2], df.out[,5])
+
+
+##Saving the months to make plots
+setwd("/Users/evelin/Desktop/FALLsemester21/DS project/pheno_inat_flora/plots")
+###Plot showing the overlap between expert and inaturalist
+pdf('comparison.pdf', width = 16,height = 8.1, bg='white')
+layout(matrix(c(2,
+                1), nrow=2, byrow = T), heights = c(.2,.8))
+par(mar = c(2.1, 8.1, 0, 14.1) )
+plot(NA,ylim = c(1,nrow(df.out)), xlim = c(1,12), xaxt = 'n', yaxt = 'n', ylab = '', xlab='Months')
+axis(1, at=1:12, labels = months, las = 1, cex.axis=1)
+axis(2, at=1:nrow(df.out), labels = df.out$sp, las = 1, cex.axis=.45)
+
+
+for(i in 1:length(overlap.ls)){
+  Int.overlap<-split(overlap.ls[[i]], cumsum(c(1, diff(overlap.ls[[i]]) != 1)))
+  for(j in 1:length(Int.overlap)){
+    points(y=rep(i, length(Int.overlap[[j]])),x=Int.overlap[[j]], type = 'b', lwd=2, col='dimgrey', bg='dimgrey',pch=21)
+  }
+  Int.exp<-split(diffexp.ls[[i]], cumsum(c(1, diff(diffexp.ls[[i]]) != 1)))
+  for(j in 1:length(Int.exp)){
+    points(y=rep(i, length(Int.exp[[j]])),x=Int.exp[[j]], type = 'b', lwd=2, col='firebrick',bg='firebrick',pch=21)
+  }
+  Int.inat<-split(diffinat.ls[[i]], cumsum(c(1, diff(diffinat.ls[[i]]) != 1)))
+  for(j in 1:length(Int.inat)){
+    points(y=rep(i, length(Int.inat[[j]])),x=Int.inat[[j]], type = 'b', lwd=2, col='dodgerblue',bg='dodgerblue',pch=21)
+  }
+}
+
+legend(x = 13, y=66, legend = c('Overlap','Only in Inat.', 'Only in Exp.'),
+       col=c('dimgrey','dodgerblue','firebrick'), xpd=T, lwd=3, box.lty=0)
+##Density plot
+overlapTot<-unlist(overlap.ls)
+offTot<-c(unlist(diffexp.ls), unlist(diffinat.ls))
+
+overlap.density<-density(overlapTot)
+off.density<-density(offTot)
+
+MinOv<-min(overlap.density$x)
+MaxOv<-max(overlap.density$x)
+MinOf<-min(off.density$x)
+MaxOf<-max(overlap.density$x)
+
+
+par(mar = c(0.1, 8.1, 0, 14.1))
+plot(overlap.density, xlim=c(1,12),ylim=c(0,.2), lwd=2, type="l", main="", xlab="", ylab="", yaxt="n", xaxt="n",
+     bty="n",ann=FALSE,col='dimgrey',axes=F,frame=F)
+with(overlap.density,polygon(c(x[x>=MinOv], MaxOv, MaxOv), c(y[x>=MinOv], 0, 0), col=alpha("dimgrey",.4)))
+lines(x=off.density$x, y = off.density$y, col='dodgerblue')
+with(off.density,polygon(c(x[x>=MinOf], MinOf, MaxOf), c(y[x>=MinOf], 0, 0), col=alpha("dodgerblue",.4)))
+dev.off()
+
+##World plot
+##restrincting the raw data set to the species analysed
+
+iNatura.World<-iNatura[which(iNatura$sp%in%df.exp$Sp),]
+mapamundo<-getMap()
+##Plot showing the occurrence points
+pdf('inaturalistdata.pdf', width = 16,height = 8.1, bg='white')
+plot(mapamundo)
+points(iNatura.World[,5:4], cex=.5, pch=21, col='blue', bg='blue')
+dev.off()
+
+Matrix.heat<-as.data.frame(matrix(nrow = nrow(df.exp), ncol=12))
+rownames(Matrix.heat)<-df.exp[,1]
+colnames(Matrix.heat)<-1:12
+
+for(i in 1:nrow(Matrix.heat)){
+  Species<-table(iNatura.World[which(iNatura.World$sp==unique(iNatura.World$sp)[i]),'obs_date'])
+  Matrix.heat[i,which(colnames(Matrix.heat)%in%names(Species))]<-Species
+}
+Matrix.heat[is.na(Matrix.heat)]<-0
+colnames(Matrix.heat)<-months
+library(RColorBrewer)
+
+Vals.col<-sort(unique(unlist(Matrix.heat)))
+cols.leg<-colorRampPalette(colors = brewer.pal(n = 9, name = 'YlOrRd'))(length(Vals.col))
+#quartz()
+
+###Heat map showing number of observations
+pdf('numberofobservations.pdf', width = 16,height = 8.1, bg='white')
+heatmap(x=as.matrix(Matrix.heat), Rowv = NA, Colv = NA, cexRow = .5, 
+        col=cols.leg,scale = 'row', )
+yb<-.2
+yt<-1.2
+
+rect(
+  .9,
+  head(seq(yb,yt,(yt-yb)/length(Vals.col)), -1)-.01,##.12
+  .935,
+  tail(seq(yb,yt,(yt-yb)/length(Vals.col)), -1)-.01,
+  border = NA,
+  col=cols.leg
+)
+mtext(text = 'High', side = 3, at = .88, padj = 3, cex=.6)
+mtext(text = 'Low', side = 3, at = .88, padj = 52, cex=.6)
+mtext(text = 'Number of Observations', side = 3, at = .92, padj = 0, cex=.6)
+dev.off()
+
+Inat.Man<-rbind.data.frame(Inat, dados)##Same dataframe as iNaturalist
+#Inat.Man[,6]<-as.numeric(substr(x = Inat.Man[,6], start=1, stop = 4))
+Inat.Man['Month']<-as.numeric(substr(x = Inat.Man[,6], start=6, stop = 7))
+Inat.Man['Day']<-as.numeric(strftime(Inat.Man[,6], format = "%j"))
+Inat.Man['Year']<-as.numeric(substr(x = Inat.Man[,6], start=1, stop = 4))
+
+
+Inat.Table.Out<-count(Inat.Man, sp,Year)
+Inat.Table.Out['flowering_time']<-NA
+
+
+for(i in 1:length(unique(Inat.Table.Out$sp))){
+  sp<-Inat.Man[which(Inat.Man$sp==unique(Inat.Man$sp)[i]),]
+  for(j in 1:length(unique(sp$Year))){
+    dado<-sp[which(sp$Year==unique(sp$Year)[j]),]
+    Inat.Table.Out[which(Inat.Table.Out$sp==unique(sp$sp) & Inat.Table.Out$Year==unique(dado$Year)),4]<-mean(dado$Day)
+  }
+}
+
+##linear mixed effect model results
+length(unique(Inat.Table.Out$sp))##We used 133 for the mixed effect models
+summary(lmerTest::lmer(flowering_time~Year+(1|sp), data = Inat.Table.Out))
+
+
+####creating iNtatura object again to run extra analysis
+
+iNatura<-rbind.data.frame(Inat, dados)
+head(iNatura)
+iNatura['year']<-as.numeric(substr(x = iNatura[,6], start=1, stop = 4))
+iNatura['month']<-as.numeric(substr(x = iNatura[,6], start=6, stop = 7))
+iNatura['Day']<-as.numeric(strftime(iNatura[,6], format = "%j"))
+
+########
+#SpeciesSp<-iNatura[which(iNatura$sp%in%table2[tail(order(table2$n)),'sp']),]
+SpeciesSp<-iNatura
+
+sp.Output<-dplyr::count(SpeciesSp, sp,year)
+sp.Output['meanDay']<-NA
+sp.Output['meanMonth']<-NA
+
+
+for(i in 1:length(unique(sp.Output$sp))){
+  sp<-SpeciesSp[which(SpeciesSp$sp==unique(SpeciesSp$sp)[i]),]
+  for(j in 1:length(unique(sp$year))){
+    sp.Output[which(sp.Output$sp==unique(sp$sp) & sp.Output$year%in%unique(sp$year)[j]),'meanMonth']<-mean(sp[which(sp$year==unique(sp$year)[j]),'month'])
+    sp.Output[which(sp.Output$sp==unique(sp$sp) & sp.Output$year%in%unique(sp$year)[j]),'meanDay']<-mean(sp[which(sp$year==unique(sp$year)[j]),'Day'])
+  }
+}
+
+mat.out<-as.data.frame(matrix(nrow = length(unique(sp.Output$sp)), ncol=length(unique(sp.Output$year))))
+rownames(mat.out)<-unique(sp.Output$sp)
+colnames(mat.out)<-sort(unique(sp.Output$year))
+val.pos<-numeric(nrow(mat.out))
+for(i in 1:nrow(mat.out)){
+  for(j in 1:ncol(mat.out)){
+    val<-sp.Output[which(sp.Output$sp==rownames(mat.out)[i] & sp.Output$year==colnames(mat.out)[j]),4]
+    if(length(val)==0){
+      mat.out[i,j]<-NA
+    }
+    if(length(val)!=0){
+      mat.out[i,j]<-sp.Output[which(sp.Output$sp==rownames(mat.out)[i] & sp.Output$year==colnames(mat.out)[j]),4]
+    }
+  }
+  val.pos[i]<-which(!is.na(mat.out[i,]))[1]
+  mat.out[i,]<-mat.out[i,]-mat.out[i,val.pos[i]]##subtracting based on first obs. Negative values = days delayed
+}
+
+vals.mat<-na.omit(unlist(mat.out))
+color.ramp.length <- 1000
+negative.length <- round(abs(range(vals.mat)[1]) /
+                           diff(range(vals.mat)) *
+                           color.ramp.length)
+positive.length <- color.ramp.length - negative.length
+cols <- c(colorRampPalette(c("seagreen", "white"))(negative.length),
+          colorRampPalette(c("white", "firebrick"))(positive.length))
+
+#To specify NA colors
+library(rasterVis)
+library(lattice)
+myTheme <- BTCTheme()
+myTheme$panel.background$col = 'grey'
+myTheme$fontsize<-list(text = 10, points = 8)
+
+##Making the plot
+##using t to make species
+pdf('floweringtime.pdf', width = 16,height = 8.1, bg='white')
+
+levelplot((as.matrix(mat.out)), col.regions = cols, par.settings = myTheme,
+          colorkey = list(col = cols,
+                          at = do.breaks(range(vals.mat),
+                                         color.ramp.length)),
+          scales=list(y=list(rot=0), x=list(rot=90)), xlab='Species',ylab='Year')
+dev.off()
+
+Sps.reg<-as.data.frame(matrix(nrow = nrow(mat.out), ncol = 4))
+colnames(Sps.reg)<-c('Species','Slope','P_value','R2')
+Sps.reg[,1]<-rownames(mat.out)
+
+for(i in 1:nrow(Sps.reg)){
+  dado<-cbind.data.frame(colnames(mat.out), as.numeric(mat.out[i,]))
+  dado<-apply(dado, 2, as.numeric)
+  dado<-na.omit(dado)
+  Re<-summary(lm(dado[,2]~dado[,1]))
+  Sps.reg[i,2]<-try(round(Re$coefficients[2,1],4))
+  Sps.reg[i,3]<-try(round(Re$coefficients[2,4],4))
+  Sps.reg[i,4]<-try(round(Re$r.squared,4))
+}
+Sps.reg[,2:4]<-apply(Sps.reg[,2:4], 2, as.numeric)
+Sps.reg<-na.omit(Sps.reg)
+
+nrow(Sps.reg)##Number of species that we could run the analyses
+length(which(Sps.reg$P_value>.05)) ##94 species had statistical significant results
+length(which(Sps.reg$P_value>.05 & Sps.reg$Slope<0))#54 species had negative results
+length(which(Sps.reg$P_value>.05 & Sps.reg$Slope>0))#40 species had positive results
